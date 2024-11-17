@@ -1,0 +1,127 @@
+import json
+import yfinance as yf
+import pandas as pd
+import talib
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+
+# Carregar configurações do JSON
+with open('config.json', 'r') as file:
+    config = json.load(file)
+
+assets = config['assets']
+start_date = config['start_date']
+end_date = config['end_date']
+stop_loss_range = np.array(config['stop_loss_range'])
+take_profit_range = np.array(config['take_profit_range'])
+
+# Obter dados históricos para o primeiro ativo na lista
+btc = yf.download(assets[0], start=start_date, end=end_date)
+
+# Obter dados históricos
+btc = yf.download('BTC-USD', start='2022-01-01', end='2024-10-30')
+
+# Calcular indicadores
+btc['RSI'] = talib.RSI(btc['Close'], timeperiod=14)
+btc['MACD'], btc['MACDsignal'], btc['MACDhist'] = talib.MACD(btc['Close'], 12, 26, 9)
+
+# Gerar sinais
+def generate_signals(data):
+    signals = pd.DataFrame(index=data.index)
+    signals['signal'] = 0.0
+    signals.loc[data['RSI'] < 30, 'signal'] = 1.0  # Compra
+    signals.loc[data['RSI'] > 70, 'signal'] = -1.0  # Venda
+    return signals
+
+signals = generate_signals(btc)
+
+# Calcular retorno total
+def calculate_return(data, signals, stop_loss, take_profit):
+    positions = signals.diff().fillna(0)
+    portfolio = initial_capital = 10000
+    portfolio_values = [initial_capital]
+    in_position = False
+    for i in range(len(data)):
+        if positions.iloc[i] == 1 and not in_position:
+            in_position = True
+            buy_price = data['Close'].iloc[i]
+            stop_loss_price = buy_price * stop_loss
+            take_profit_price = buy_price * take_profit
+        elif positions.iloc[i] == -1 and in_position:
+            in_position = False
+            sell_price = data['Close'].iloc[i]
+            portfolio += sell_price - buy_price
+        elif in_position:
+            if data['Close'].iloc[i] <= stop_loss_price:
+                portfolio += stop_loss_price - buy_price
+                in_position = False
+            elif data['Close'].iloc[i] >= take_profit_price:
+                portfolio += take_profit_price - buy_price
+                in_position = False
+        portfolio_values.append(portfolio)
+    return (portfolio / initial_capital) - 1, portfolio_values
+
+# Otimizar estratégia
+def optimize_strategy(data, signals, stop_loss_range, take_profit_range):
+    best_return = -np.inf
+    best_params = None
+    for stop_loss in stop_loss_range:
+        for take_profit in take_profit_range:
+            return_, _ = calculate_return(data, signals, stop_loss, take_profit)
+            if return_ > best_return:
+                best_return = return_
+                best_params = (stop_loss, take_profit)
+    return best_params, best_return
+
+# Configurar otimização
+stop_loss_range = np.arange(0.9, 0.96, 0.01)
+take_profit_range = np.arange(1.05, 1.16, 0.01)
+
+# Encontrar melhores parâmetros
+best_params, best_return = optimize_strategy(btc, signals, stop_loss_range, take_profit_range)
+print("Melhores parâmetros:", best_params)
+print("Melhor retorno:", best_return)
+
+# Visualizar matriz de retornos
+results = np.zeros((len(stop_loss_range), len(take_profit_range)))
+for i, stop_loss in enumerate(stop_loss_range):
+    for j, take_profit in enumerate(take_profit_range):
+        results[i, j], _ = calculate_return(btc, signals, stop_loss, take_profit)
+
+results_df = pd.DataFrame(results, index=stop_loss_range, columns=take_profit_range)
+sns.heatmap(results_df, annot=True)
+plt.title("Retornos")
+plt.xlabel("Take Profit")
+plt.ylabel("Stop Loss")
+plt.show()
+
+
+print(btc.head())  # Ver os primeiros 5 registros do Bitcoin
+print(sp500.head())  # Ver os primeiros 5 registros do S&P 500
+def generate_signals(data):
+    signals = pd.DataFrame(index=data.index)
+    signals['signal'] = 0.0
+    signals['signal'][data['RSI'] < 30] = 1.0  # Compra
+    signals['signal'][data['RSI'] > 70] = -1.0  # Venda
+    print(signals['signal'].value_counts())  # Contar sinais de compra e venda
+    return signals
+for i in range(len(data)):
+    print(f"Índice: {i}, Fechamento: {data['Close'].iloc[i]}, Posição: {in_position}")
+    if positions.iloc[i] == 1:
+        print(f"Compra realizada a {data['Close'].iloc[i]}")
+    elif positions.iloc[i] == -1:
+        print(f"Venda realizada a {data['Close'].iloc[i]}")
+def optimize_strategy(data, signals, stop_loss_range, take_profit_range):
+    best_return = -np.inf
+    best_params = None
+    for stop_loss in stop_loss_range:
+        for take_profit in take_profit_range:
+            return_ = calculate_return(data, signals, stop_loss, take_profit)
+            print(f"Stop-loss: {stop_loss}, Take-profit: {take_profit}, Retorno: {return_}")
+            if return_ > best_return:
+                best_return = return_
+                best_params = (stop_loss, take_profit)
+    return best_params, best_return
+print(btc.index)  # Datas do eixo X
+print(btc['Close'])  # Valores do eixo Y
