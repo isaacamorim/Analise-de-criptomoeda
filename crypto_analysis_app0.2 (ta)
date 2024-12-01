@@ -1,0 +1,134 @@
+import json
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import ta
+import streamlit as st
+
+# Carregar configurações do JSON
+with open("config.json", "r") as file:
+    config = json.load(file)
+
+assets = config["assets"]
+start_date = config["start_date"]
+end_date = config["end_date"]
+stop_loss_range = np.array(config["stop_loss_range"])
+take_profit_range = np.array(config["take_profit_range"])
+
+# Obter dados históricos para o primeiro ativo na lista
+btc = yf.download(assets[0], start=start_date, end=end_date)
+
+# Verificar se os dados foram baixados corretamente
+print("Dados de preços baixados:")
+print(btc.head())
+
+# Calcular indicadores
+try:
+    btc["RSI"] = ta.momentum.RSIIndicator(btc["Close"]).rsi()
+    macd = ta.trend.MACD(btc["Close"])
+    btc["MACD"] = macd.macd()
+    btc["MACDsignal"] = macd.macd_signal()
+    btc["MACDhist"] = macd.macd_diff()
+except Exception as e:
+    print(f"Erro ao calcular indicadores: {e}")
+    btc["RSI"] = np.nan
+    btc["MACD"] = np.nan
+    btc["MACDsignal"] = np.nan
+    btc["MACDhist"] = np.nan
+
+# Verificar os dados calculados
+print("Dados com indicadores calculados:")
+print(btc.head())
+
+
+# Gerar sinais de compra/venda
+def generate_signals(data):
+    signals = pd.DataFrame(index=data.index)
+    signals["signal"] = 0.0
+
+    signals.loc[data["RSI"] < 30, "signal"] = 1.0  # Sinal de compra
+    signals.loc[data["RSI"] > 70, "signal"] = -1.0  # Sinal de venda
+
+    return signals
+
+
+signals = generate_signals(btc)
+
+
+# Previsão de compra e venda
+def generate_recommendations(data, signals):
+    recommendations = []
+
+    for date, signal in signals[
+        "signal"
+    ].items():  # Use items() in place of iteritems()
+        if signal == 1.0:  # Sinal de compra
+            recommendations.append(
+                f"{date}: Sinal de COMPRA detectado. Preço: {data['Close'][date]:.2f}"
+            )
+        elif signal == -1.0:  # Sinal de venda
+            recommendations.append(
+                f"{date}: Sinal de VENDA detectado. Preço: {data['Close'][date]:.2f}"
+            )
+
+    return recommendations
+
+
+recommendations = generate_recommendations(btc, signals)
+
+
+# Melhor estratégia baseada em stop loss e take profit
+def optimize_strategy(data, signals, stop_loss_range, take_profit_range):
+    best_return = -np.inf
+    best_params = None
+
+    for stop_loss in stop_loss_range:
+        for take_profit in take_profit_range:
+            positions = signals["signal"].diff().fillna(0)
+            portfolio = 10000  # Capital inicial
+            in_position = False
+
+            for i in range(len(data)):
+                if positions.iloc[i] == 1 and not in_position:  # Compra
+                    in_position = True
+                    buy_price = data["Close"].iloc[i]
+                    stop_loss_price = buy_price * stop_loss
+                    take_profit_price = buy_price * take_profit
+                elif positions.iloc[i] == -1 and in_position:  # Venda
+                    in_position = False
+                    portfolio += data["Close"].iloc[i] - buy_price
+                elif in_position:
+                    # Stop loss ou take profit
+                    if data["Close"].iloc[i] <= stop_loss_price:
+                        portfolio += stop_loss_price - buy_price
+                        in_position = False
+                    elif data["Close"].iloc[i] >= take_profit_price:
+                        portfolio += take_profit_price - buy_price
+                        in_position = False
+
+            return_ = (portfolio / 10000) - 1
+            if return_ > best_return:
+                best_return = return_
+                best_params = (stop_loss, take_profit)
+
+    return best_params, best_return
+
+
+best_params, best_return = optimize_strategy(
+    btc, signals, stop_loss_range, take_profit_range
+)
+
+# Criar a aplicação Streamlit
+st.title("Análise de Criptomoedas")
+
+# Exibir as recomendações
+st.subheader("Recomendações de Compra/Venda")
+for rec in recommendations:
+    st.write(rec)
+
+# Exibir os resultados da otimização
+st.subheader("Estratégia Otimizada")
+st.write(
+    f"Melhores parâmetros: Stop Loss = {best_params[0]:.2f}, Take Profit = {best_params[1]:.2f}"
+)
+st.write(f"Melhor retorno esperado: {best_return:.2%}")
