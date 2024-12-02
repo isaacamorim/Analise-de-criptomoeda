@@ -4,10 +4,19 @@ import pandas as pd
 import numpy as np
 import ta
 import streamlit as st
+import matplotlib.pyplot as plt
+import webbrowser
+
+# Definir o caminho completo para o executável do Opera
+webbrowser.register(
+    "opera", None, webbrowser.BackgroundBrowser("C:\\Caminho\\Para\\Seu\\Opera.exe")
+)
 
 # Carregar configurações do JSON
 with open("config.json", "r") as file:
-    config = json.load(file)
+    config = json.load(
+        file
+    )  # Certifique-se de que a função json.load está sendo chamada corretamente
 
 assets = config["assets"]
 start_date = config["start_date"]
@@ -24,11 +33,20 @@ print(btc.head())
 
 # Calcular indicadores
 try:
-    btc["RSI"] = ta.momentum.RSIIndicator(btc["Close"]).rsi()
-    macd = ta.trend.MACD(btc["Close"])
+    btc["Close"] = (
+        btc["Close"].astype(float).squeeze()
+    )  # Garantir que 'Close' é float e unidimensional
+    rsi_indicator = ta.momentum.RSIIndicator(close=btc["Close"])
+    btc["RSI"] = rsi_indicator.rsi()
+
+    macd = ta.trend.MACD(close=btc["Close"])
     btc["MACD"] = macd.macd()
     btc["MACDsignal"] = macd.macd_signal()
     btc["MACDhist"] = macd.macd_diff()
+
+    # Verificar se as colunas foram corretamente adicionadas
+    print("Colunas disponíveis no DataFrame após cálculos:")
+    print(btc.columns)
 except Exception as e:
     print(f"Erro ao calcular indicadores: {e}")
     btc["RSI"] = np.nan
@@ -45,10 +63,8 @@ print(btc.head())
 def generate_signals(data):
     signals = pd.DataFrame(index=data.index)
     signals["signal"] = 0.0
-
     signals.loc[data["RSI"] < 30, "signal"] = 1.0  # Sinal de compra
     signals.loc[data["RSI"] > 70, "signal"] = -1.0  # Sinal de venda
-
     return signals
 
 
@@ -58,10 +74,7 @@ signals = generate_signals(btc)
 # Previsão de compra e venda
 def generate_recommendations(data, signals):
     recommendations = []
-
-    for date, signal in signals[
-        "signal"
-    ].items():  # Use items() in place of iteritems()
+    for date, signal in signals["signal"].items():
         if signal == 1.0:  # Sinal de compra
             recommendations.append(
                 f"{date}: Sinal de COMPRA detectado. Preço: {data['Close'][date]:.2f}"
@@ -70,7 +83,6 @@ def generate_recommendations(data, signals):
             recommendations.append(
                 f"{date}: Sinal de VENDA detectado. Preço: {data['Close'][date]:.2f}"
             )
-
     return recommendations
 
 
@@ -81,13 +93,11 @@ recommendations = generate_recommendations(btc, signals)
 def optimize_strategy(data, signals, stop_loss_range, take_profit_range):
     best_return = -np.inf
     best_params = None
-
     for stop_loss in stop_loss_range:
         for take_profit in take_profit_range:
             positions = signals["signal"].diff().fillna(0)
             portfolio = 10000  # Capital inicial
             in_position = False
-
             for i in range(len(data)):
                 if positions.iloc[i] == 1 and not in_position:  # Compra
                     in_position = True
@@ -105,12 +115,10 @@ def optimize_strategy(data, signals, stop_loss_range, take_profit_range):
                     elif data["Close"].iloc[i] >= take_profit_price:
                         portfolio += take_profit_price - buy_price
                         in_position = False
-
             return_ = (portfolio / 10000) - 1
             if return_ > best_return:
                 best_return = return_
                 best_params = (stop_loss, take_profit)
-
     return best_params, best_return
 
 
@@ -121,10 +129,50 @@ best_params, best_return = optimize_strategy(
 # Criar a aplicação Streamlit
 st.title("Análise de Criptomoedas")
 
+# Exibir informações básicas
+st.subheader("Informações Básicas")
+st.write(f"Ativo: {assets[0]}")
+st.write(f"Período: {start_date} a {end_date}")
+
+# Exibir tabela de dados
+st.subheader("Dados Históricos")
+st.dataframe(btc)
+
+# Verificar se as colunas de indicadores existem antes de criar os gráficos
+colunas_macd = ["MACD", "MACDsignal", "MACDhist"]
+print("Verificando existência das colunas para gráficos...")
+if all(col in btc.columns for col in colunas_macd):
+    st.subheader("Gráfico de Preço de Fechamento")
+    plt.figure()
+    plt.plot(btc.index, btc["Close"], label="Close Price")
+    plt.xlabel("Date")
+    plt.ylabel("Price")
+    plt.legend()
+    st.pyplot(plt.gcf())
+
+    st.subheader("Gráfico do RSI")
+    plt.figure()
+    plt.plot(btc.index, btc["RSI"], label="RSI")
+    plt.xlabel("Date")
+    plt.ylabel("RSI")
+    plt.legend()
+    st.pyplot(plt.gcf())
+
+    st.subheader("Gráfico do MACD")
+    plt.figure()
+    plt.plot(btc.index, btc["MACD"], label="MACD")
+    plt.plot(btc.index, btc["MACDsignal"], label="MACD Signal")
+    plt.bar(btc.index, btc["MACDhist"], label="MACD Hist", alpha=0.5)
+    plt.xlabel("Date")
+    plt.ylabel("MACD")
+    plt.legend()
+    st.pyplot(plt.gcf())
+else:
+    st.write("Colunas do MACD não encontradas no DataFrame.")
+
 # Exibir as recomendações
 st.subheader("Recomendações de Compra/Venda")
-for rec in recommendations:
-    st.write(rec)
+st.write(recommendations)
 
 # Exibir os resultados da otimização
 st.subheader("Estratégia Otimizada")
@@ -132,3 +180,6 @@ st.write(
     f"Melhores parâmetros: Stop Loss = {best_params[0]:.2f}, Take Profit = {best_params[1]:.2f}"
 )
 st.write(f"Melhor retorno esperado: {best_return:.2%}")
+
+# Abrir o navegador Opera com a interface Streamlit
+webbrowser.get("opera").open("http://localhost:8501")
