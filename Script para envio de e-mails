@@ -1,0 +1,56 @@
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import time
+import logging
+
+# Configuração do logging
+logging.basicConfig(
+    filename="monitor_btc.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+
+# Função para enviar o e-mail
+def send_email(subject, body, to_email, from_email, password):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = from_email
+        msg["To"] = to_email
+        msg["Subject"] = subject
+
+        msg.attach(MIMEText(body, "plain"))
+
+        # Configurar o servidor SMTP (Gmail)
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(from_email, password)
+
+        text = msg.as_string()
+        server.sendmail(from_email, to_email, text)
+        server.quit()
+        logging.info("E-mail enviado com sucesso!")
+    except Exception as e:
+        logging.error(f"Erro ao enviar o e-mail: {e}")
+
+
+# Função para monitorar o preço e enviar o e-mail se o preço de compra for atingido
+def monitor_price_and_send_email(btc, suggested_buy_price, from_email, password, to_email):
+    current_price = btc["Close"].iloc[-1]
+    
+    # Verifica se o preço está perto do preço sugerido de compra
+    if current_price <= suggested_buy_price * 1.01 and current_price >= suggested_buy_price * 0.99:
+        subject = "Alerta de Compra - Bitcoin"
+        body = f"Preço atual do Bitcoin: {current_price:.2f}\nO preço está próximo ao preço sugerido de compra de {suggested_buy_price:.2f}. Verifique a oportunidade de compra!"
+        send_email(subject, body, to_email, from_email, password)
+
+# Exemplo de como configurar e rodar a função
+from_email = 'isaacvinicius.carvalho@gmail.com'  # Seu e-mail
+##password = 'Alterar_Senha'  # Sua senha de e-mail (no caso do Gmail, pode ser uma senha de app)
+to_email = 'isaacvinicius.carvalho@gmail.com'  # E-mail do destinatário
+
+# Monitoramento de preços (ajustado para a lógica de comparação)
+while True:
+    monitor_price_and_send_email(btc, suggested_buy_price, from_email, password, to_email)
+    time.sleep(60 * 5)  # Espera 5 minutos antes de verificar novamente
