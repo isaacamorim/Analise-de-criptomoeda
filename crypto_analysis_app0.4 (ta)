@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 
 
 # Função para exibir texto no gráfico
-def display_info_on_graph(data, info_texts, signals):
-    plt.figure(figsize=(12, 6))
+def display_info_on_graph(
+    data, info_texts, signals, current_price, suggested_buy_price, suggested_sell_price
+):
+    plt.figure(figsize=(12, 8))
 
     # Gráfico de preço
     plt.subplot(2, 1, 1)  # Subplot para o gráfico de preço
@@ -28,6 +30,16 @@ def display_info_on_graph(data, info_texts, signals):
         marker="v",  # Triângulo invertido para venda
         color="red",
         label="Venda",
+    )
+
+    # Exibindo o valor atual do BTC no gráfico de preço
+    plt.text(
+        0.02,
+        0.95,
+        f"Preço atual BTC: {current_price:.2f} USD",
+        fontsize=12,
+        color="black",
+        transform=plt.gca().transAxes,
     )
 
     plt.legend()
@@ -58,6 +70,24 @@ def display_info_on_graph(data, info_texts, signals):
         color="green",
         marker="o",
         label="RSI Sobrevendido",
+    )
+
+    # Exibindo valores recomendados para compra e venda no gráfico de RSI
+    plt.text(
+        0.02,
+        70.5,
+        f"Compra sugerida: {suggested_buy_price:.2f}",
+        fontsize=10,
+        color="green",
+        transform=plt.gca().transAxes,
+    )
+    plt.text(
+        0.02,
+        29.5,
+        f"Venda sugerida: {suggested_sell_price:.2f}",
+        fontsize=10,
+        color="red",
+        transform=plt.gca().transAxes,
     )
 
     plt.legend()
@@ -194,28 +224,6 @@ print(f"Preço sugerido para compra no curto prazo: {suggested_buy_price:.2f}")
 print(f"Preço sugerido para venda no curto prazo: {suggested_sell_price:.2f}")
 
 
-# Calcular o lucro possível levando em conta as taxas da Binance
-def calcular_lucro(preco_compra, preco_venda, taxa_compra=0.001, taxa_venda=0.001):
-    taxa_de_compra = preco_compra * taxa_compra  # Calcular a taxa de compra
-    taxa_de_venda = preco_venda * taxa_venda  # Calcular a taxa de venda
-    lucro_bruto = preco_venda - preco_compra  # Calcular o lucro bruto
-    lucro_liquido = (
-        lucro_bruto - taxa_de_compra - taxa_de_venda
-    )  # Calcular o lucro líquido após taxas
-    return lucro_liquido, taxa_de_compra, taxa_de_venda
-
-
-lucro_liquido, taxa_de_compra, taxa_de_venda = calcular_lucro(
-    suggested_buy_price, suggested_sell_price
-)
-
-print(f"Taxa de compra: {taxa_de_compra:.2f}")
-print(f"Taxa de venda: {taxa_de_venda:.2f}")
-print(
-    f"Lucro possível (líquido) no curto prazo: {lucro_liquido:.2f} (Preço de compra: {suggested_buy_price:.2f}, Preço de venda: {suggested_sell_price:.2f})"
-)
-
-
 # Exibir gráficos e informações adicionais
 info_texts = [
     f"Preço Atual: {float(btc['Close'].iloc[-1]):.2f}",
@@ -223,4 +231,6 @@ info_texts = [
     f"Recomendação: {recommendations[0] if recommendations else 'Nenhuma recomendação'}",
 ]
 
-display_info_on_graph(btc, info_texts, signals)
+display_info_on_graph(
+    btc, info_texts, signals, current_price, suggested_buy_price, suggested_sell_price
+)
