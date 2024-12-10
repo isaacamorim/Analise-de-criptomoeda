@@ -3,20 +3,72 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import ta
-import streamlit as st
 import matplotlib.pyplot as plt
-import webbrowser
 
-# Definir o caminho completo para o executável do Opera
-webbrowser.register(
-    "opera", None, webbrowser.BackgroundBrowser("C:\\Caminho\\Para\\Seu\\Opera.exe")
-)
+
+# Função para exibir texto no gráfico
+def display_info_on_graph(data, info_texts, signals):
+    plt.figure(figsize=(12, 6))
+
+    # Gráfico de preço
+    plt.subplot(2, 1, 1)  # Subplot para o gráfico de preço
+    plt.plot(data.index, data["Close"], label="Preço", color="blue")
+
+    # Adicionando marcações de compra e venda no gráfico de preço
+    plt.scatter(
+        signals[signals["signal"] == 1].index,
+        data["Close"][signals["signal"] == 1],
+        marker="^",  # Triângulo para compra
+        color="green",
+        label="Compra",
+    )
+    plt.scatter(
+        signals[signals["signal"] == -1].index,
+        data["Close"][signals["signal"] == -1],
+        marker="v",  # Triângulo invertido para venda
+        color="red",
+        label="Venda",
+    )
+
+    plt.legend()
+    plt.title("Preço do Ativo")
+
+    # Gráfico do RSI
+    plt.subplot(2, 1, 2)  # Subplot para o gráfico de RSI
+    plt.plot(data.index, data["RSI"], label="RSI", color="orange")
+
+    # Adicionando zonas de sobrecompra e sobrevenda no gráfico do RSI
+    plt.axhline(70, color="red", linestyle="--", label="Sobrecompra (70)")
+    plt.axhline(30, color="green", linestyle="--", label="Sobrevenda (30)")
+
+    # Destacar valores do RSI nas zonas de sobrecompra e sobrevenda
+    overbought_points = data[data["RSI"] > 70]
+    oversold_points = data[data["RSI"] < 30]
+
+    plt.scatter(
+        overbought_points.index,
+        overbought_points["RSI"],
+        color="red",
+        marker="o",
+        label="RSI Sobrecomprado",
+    )
+    plt.scatter(
+        oversold_points.index,
+        oversold_points["RSI"],
+        color="green",
+        marker="o",
+        label="RSI Sobrevendido",
+    )
+
+    plt.legend()
+    plt.title("RSI do Ativo")
+    plt.tight_layout()
+    plt.show()
+
 
 # Carregar configurações do JSON
 with open("config.json", "r") as file:
-    config = json.load(
-        file
-    )  # Certifique-se de que a função json.load está sendo chamada corretamente
+    config = json.load(file)
 
 assets = config["assets"]
 start_date = config["start_date"]
@@ -28,14 +80,14 @@ take_profit_range = np.array(config["take_profit_range"])
 btc = yf.download(assets[0], start=start_date, end=end_date)
 
 # Verificar se os dados foram baixados corretamente
-print("Dados de preços baixados:")
-print(btc.head())
+if btc.empty:
+    raise ValueError(
+        "Dados não foram baixados corretamente. Verifique as configurações e tente novamente."
+    )
 
 # Calcular indicadores
 try:
-    btc["Close"] = (
-        btc["Close"].astype(float).squeeze()
-    )  # Garantir que 'Close' é float e unidimensional
+    btc["Close"] = btc["Close"].astype(float)  # Garantir que 'Close' é float
     rsi_indicator = ta.momentum.RSIIndicator(close=btc["Close"])
     btc["RSI"] = rsi_indicator.rsi()
 
@@ -44,19 +96,12 @@ try:
     btc["MACDsignal"] = macd.macd_signal()
     btc["MACDhist"] = macd.macd_diff()
 
-    # Verificar se as colunas foram corretamente adicionadas
-    print("Colunas disponíveis no DataFrame após cálculos:")
-    print(btc.columns)
 except Exception as e:
     print(f"Erro ao calcular indicadores: {e}")
     btc["RSI"] = np.nan
     btc["MACD"] = np.nan
     btc["MACDsignal"] = np.nan
     btc["MACDhist"] = np.nan
-
-# Verificar os dados calculados
-print("Dados com indicadores calculados:")
-print(btc.head())
 
 
 # Gerar sinais de compra/venda
@@ -126,60 +171,56 @@ best_params, best_return = optimize_strategy(
     btc, signals, stop_loss_range, take_profit_range
 )
 
-# Criar a aplicação Streamlit
-st.title("Análise de Criptomoedas")
-
-# Exibir informações básicas
-st.subheader("Informações Básicas")
-st.write(f"Ativo: {assets[0]}")
-st.write(f"Período: {start_date} a {end_date}")
-
-# Exibir tabela de dados
-st.subheader("Dados Históricos")
-st.dataframe(btc)
-
-# Verificar se as colunas de indicadores existem antes de criar os gráficos
-colunas_macd = ["MACD", "MACDsignal", "MACDhist"]
-print("Verificando existência das colunas para gráficos...")
-if all(col in btc.columns for col in colunas_macd):
-    st.subheader("Gráfico de Preço de Fechamento")
-    plt.figure()
-    plt.plot(btc.index, btc["Close"], label="Close Price")
-    plt.xlabel("Date")
-    plt.ylabel("Price")
-    plt.legend()
-    st.pyplot(plt.gcf())
-
-    st.subheader("Gráfico do RSI")
-    plt.figure()
-    plt.plot(btc.index, btc["RSI"], label="RSI")
-    plt.xlabel("Date")
-    plt.ylabel("RSI")
-    plt.legend()
-    st.pyplot(plt.gcf())
-
-    st.subheader("Gráfico do MACD")
-    plt.figure()
-    plt.plot(btc.index, btc["MACD"], label="MACD")
-    plt.plot(btc.index, btc["MACDsignal"], label="MACD Signal")
-    plt.bar(btc.index, btc["MACDhist"], label="MACD Hist", alpha=0.5)
-    plt.xlabel("Date")
-    plt.ylabel("MACD")
-    plt.legend()
-    st.pyplot(plt.gcf())
-else:
-    st.write("Colunas do MACD não encontradas no DataFrame.")
-
-# Exibir as recomendações
-st.subheader("Recomendações de Compra/Venda")
-st.write(recommendations)
-
-# Exibir os resultados da otimização
-st.subheader("Estratégia Otimizada")
-st.write(
+print(
     f"Melhores parâmetros: Stop Loss = {best_params[0]:.2f}, Take Profit = {best_params[1]:.2f}"
 )
-st.write(f"Melhor retorno esperado: {best_return:.2%}")
+print(f"Melhor retorno esperado: {best_return:.2%}")
 
-# Abrir o navegador Opera com a interface Streamlit
-webbrowser.get("opera").open("http://localhost:8501")
+
+# Verificar preço atual e sugerir preço de compra e venda no curto prazo
+def current_price_and_recommendations(data, short_term_percent=0.01):
+    current_price = float(data["Close"].iloc[-1])  # Converter para float
+    suggested_buy_price = current_price * (1 - short_term_percent)
+    suggested_sell_price = current_price * (1 + short_term_percent)
+    return current_price, suggested_buy_price, suggested_sell_price
+
+
+current_price, suggested_buy_price, suggested_sell_price = (
+    current_price_and_recommendations(btc)
+)
+
+print(f"Preço atual: {current_price:.2f}")
+print(f"Preço sugerido para compra no curto prazo: {suggested_buy_price:.2f}")
+print(f"Preço sugerido para venda no curto prazo: {suggested_sell_price:.2f}")
+
+
+# Calcular o lucro possível levando em conta as taxas da Binance
+def calcular_lucro(preco_compra, preco_venda, taxa_compra=0.001, taxa_venda=0.001):
+    taxa_de_compra = preco_compra * taxa_compra  # Calcular a taxa de compra
+    taxa_de_venda = preco_venda * taxa_venda  # Calcular a taxa de venda
+    lucro_bruto = preco_venda - preco_compra  # Calcular o lucro bruto
+    lucro_liquido = (
+        lucro_bruto - taxa_de_compra - taxa_de_venda
+    )  # Calcular o lucro líquido após taxas
+    return lucro_liquido, taxa_de_compra, taxa_de_venda
+
+
+lucro_liquido, taxa_de_compra, taxa_de_venda = calcular_lucro(
+    suggested_buy_price, suggested_sell_price
+)
+
+print(f"Taxa de compra: {taxa_de_compra:.2f}")
+print(f"Taxa de venda: {taxa_de_venda:.2f}")
+print(
+    f"Lucro possível (líquido) no curto prazo: {lucro_liquido:.2f} (Preço de compra: {suggested_buy_price:.2f}, Preço de venda: {suggested_sell_price:.2f})"
+)
+
+
+# Exibir gráficos e informações adicionais
+info_texts = [
+    f"Preço Atual: {float(btc['Close'].iloc[-1]):.2f}",
+    f"RSI Atual: {float(btc['RSI'].iloc[-1]):.2f}",
+    f"Recomendação: {recommendations[0] if recommendations else 'Nenhuma recomendação'}",
+]
+
+display_info_on_graph(btc, info_texts, signals)
