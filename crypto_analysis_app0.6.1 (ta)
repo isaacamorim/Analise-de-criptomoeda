@@ -1,0 +1,249 @@
+import json
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import ta
+import matplotlib.pyplot as plt
+
+
+# Função para exibir texto no gráfico
+def display_info_on_graph(
+    data,
+    info_texts,
+    signals,
+    current_price,
+    suggested_buy_price,
+    suggested_sell_price,
+    rsi_target_buy_price,
+    rsi_target_sell_price,
+):
+    plt.figure(figsize=(12, 8))
+
+    # Gráfico de preço
+    plt.subplot(2, 1, 1)
+    plt.plot(data.index, data["Close"], label="Preço Fechamento", color="blue")
+
+    # Anotações no gráfico de preço
+    plt.annotate(
+        f"Preço Atual: {current_price:.2f}",
+        xy=(data.index[-1], data["Close"].iloc[-1]),
+        xytext=(-50, 50),
+        textcoords="offset points",
+        arrowprops=dict(facecolor="blue", arrowstyle="->"),
+        fontsize=10,
+        color="blue",
+    )
+
+    # Marcações de compra e venda
+    plt.scatter(
+        signals[signals["signal"] == 1].index,
+        data["Close"][signals["signal"] == 1],
+        marker="^",
+        color="green",
+        label="Compra",
+    )
+    plt.scatter(
+        signals[signals["signal"] == -1].index,
+        data["Close"][signals["signal"] == -1],
+        marker="v",
+        color="red",
+        label="Venda",
+    )
+
+    # Informações adicionais no canto superior esquerdo
+    gain_percent = ((suggested_sell_price / suggested_buy_price) - 1) * 100
+    info_text = (
+        f"Preço Atual: {current_price:.2f} USD\n"
+        f"Compra Sugerida: {suggested_buy_price:.2f} USD\n"
+        f"Venda Sugerida: {suggested_sell_price:.2f} USD\n"
+        f"Ganho Estimado: {gain_percent:.2f}%\n"
+    )
+    plt.text(
+        0.02, 0.85, info_text, fontsize=10, color="black", transform=plt.gca().transAxes
+    )
+
+    plt.legend()
+    plt.title("Preço do Ativo")
+
+    # Gráfico do RSI
+    plt.subplot(2, 1, 2)
+    plt.plot(data.index, data["RSI"], label="RSI", color="orange")
+    plt.axhline(70, color="red", linestyle="--", label="Sobrecompra (70)")
+    plt.axhline(30, color="green", linestyle="--", label="Sobrevenda (30)")
+
+    # Destacar zonas de sobrecompra e sobrevenda
+    plt.fill_between(
+        data.index, 70, 100, color="red", alpha=0.1, label="Zona de Sobrecompra"
+    )
+    plt.fill_between(
+        data.index, 0, 30, color="green", alpha=0.1, label="Zona de Sobrevenda"
+    )
+
+    # Pontos de sobrecompra e sobrevenda
+    overbought_points = data[data["RSI"] > 70]
+    oversold_points = data[data["RSI"] < 30]
+    plt.scatter(
+        overbought_points.index, overbought_points["RSI"], color="red", marker="o"
+    )
+    plt.scatter(
+        oversold_points.index, oversold_points["RSI"], color="green", marker="o"
+    )
+
+    # Exibindo preços recomendados no gráfico do RSI
+    plt.text(
+        0.02,
+        0.8,
+        f"Compra sugerida: {suggested_buy_price:.2f}",
+        fontsize=10,
+        color="green",
+        transform=plt.gca().transAxes,
+    )
+    plt.text(
+        0.02,
+        0.7,
+        f"Venda sugerida: {suggested_sell_price:.2f}",
+        fontsize=10,
+        color="red",
+        transform=plt.gca().transAxes,
+    )
+
+    plt.legend()
+    plt.title("RSI do Ativo")
+    plt.tight_layout()
+    plt.show()
+
+
+# Função para calcular indicadores
+def calculate_indicators(data):
+    try:
+        data["Close"] = data["Close"].astype(float)
+        rsi_indicator = ta.momentum.RSIIndicator(close=data["Close"])
+        data["RSI"] = rsi_indicator.rsi()
+
+        macd = ta.trend.MACD(close=data["Close"])
+        data["MACD"] = macd.macd()
+        data["MACDsignal"] = macd.macd_signal()
+        data["MACDhist"] = macd.macd_diff()
+    except Exception as e:
+        print(f"Erro ao calcular indicadores: {e}")
+        data["RSI"] = np.nan
+        data["MACD"] = np.nan
+        data["MACDsignal"] = np.nan
+        data["MACDhist"] = np.nan
+    return data
+
+
+# Função para gerar sinais de compra/venda
+def generate_signals(data):
+    signals = pd.DataFrame(index=data.index)
+    signals["signal"] = 0.0
+    signals.loc[data["RSI"] < 30, "signal"] = 1.0  # Sinal de compra
+    signals.loc[data["RSI"] > 70, "signal"] = -1.0  # Sinal de venda
+    return signals
+
+
+# Função para calcular preços com base no RSI
+def current_price_and_recommendations(data, short_term_percent=0.01):
+    current_price = float(data["Close"].iloc[-1])
+
+    # Preços sugeridos
+    suggested_buy_price = current_price * (1 - short_term_percent)
+    suggested_sell_price = current_price * (1 + short_term_percent)
+
+    # Preços para atingir os valores do RSI
+    current_rsi = data["RSI"].iloc[-1]
+    if pd.isna(current_rsi):
+        print("RSI inválido, não será possível calcular os preços-alvo.")
+        return (
+            current_price,
+            suggested_buy_price,
+            suggested_sell_price,
+            current_price,
+            current_price,
+        )
+
+    rsi_target_buy_price = (
+        current_price * (1 - (30 - current_rsi) / 100)
+        if current_rsi < 30
+        else current_price
+    )
+    rsi_target_sell_price = (
+        current_price * (1 + (current_rsi - 70) / 100)
+        if current_rsi > 70
+        else current_price
+    )
+
+    return (
+        current_price,
+        suggested_buy_price,
+        suggested_sell_price,
+        rsi_target_buy_price,
+        rsi_target_sell_price,
+    )
+
+
+# Carregar configurações do JSON
+with open("config.json", "r") as file:
+    config = json.load(file)
+
+if not all(
+    k in config
+    for k in [
+        "assets",
+        "start_date",
+        "end_date",
+        "stop_loss_range",
+        "take_profit_range",
+    ]
+):
+    raise KeyError("Algumas configurações obrigatórias estão ausentes no arquivo JSON.")
+
+assets = config["assets"]
+start_date = config["start_date"]
+end_date = config["end_date"]
+
+
+# Baixar dados históricos
+def download_data(asset, start_date, end_date):
+    data = yf.download(asset, start=start_date, end=end_date)
+    if data.empty or "Close" not in data.columns:
+        raise ValueError("Dados insuficientes ou coluna 'Close' ausente.")
+    return data
+
+
+btc = download_data(assets[0], start_date, end_date)
+btc = calculate_indicators(btc)
+
+# Gerar sinais
+signals = generate_signals(btc)
+
+# Obter preços e recomendações
+(
+    current_price,
+    suggested_buy_price,
+    suggested_sell_price,
+    rsi_target_buy_price,
+    rsi_target_sell_price,
+) = current_price_and_recommendations(btc)
+
+# Exibir informações no console
+print(f"Preço atual: {current_price:.2f}")
+print(f"Preço sugerido para compra no curto prazo: {suggested_buy_price:.2f}")
+print(f"Preço sugerido para venda no curto prazo: {suggested_sell_price:.2f}")
+print(f"Preço para atingir RSI 70 (Sobrecompra): {rsi_target_sell_price:.2f}")
+print(f"Preço para atingir RSI 30 (Sobrevenda): {rsi_target_buy_price:.2f}")
+
+# Exibir gráficos
+display_info_on_graph(
+    btc,
+    info_texts=[
+        f"Preço Atual: {current_price:.2f}",
+        f"RSI Atual: {btc['RSI'].iloc[-1]:.2f}",
+    ],
+    signals=signals,
+    current_price=current_price,
+    suggested_buy_price=suggested_buy_price,
+    suggested_sell_price=suggested_sell_price,
+    rsi_target_buy_price=rsi_target_buy_price,
+    rsi_target_sell_price=rsi_target_sell_price,
+)
